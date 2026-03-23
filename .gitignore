@@ -1,0 +1,18 @@
+# Python virtual environment
+.venv/
+
+# Byte-compiled / cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Artifacts (large generated files)
+artifacts/
+sensor_data/
+
+# mmcows-main folder if you don't want to push full repo
+mmcows-main/
+
+# VSCode / IDE settings
+.vscode/
