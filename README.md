@@ -248,3 +248,98 @@ For your real deployment:
 That is your production-ready path from:
 
 **raw sensor -> features per second -> trained model -> cow behavior output**
+
+---
+
+✅ LEVEL 1 (your current V2 — GOOD)
+
+👉 Only:
+
+IMMU
+
+✔ Works
+✔ Simple
+❌ Limited accuracy
+
+LEVEL 2 (BEST balance — what you should build)
+
+👉 Use ONLY:
+
+✅ IMMU (movement)
+✅ UWB (position)
+✅ Head direction
+
+👉 Why?
+
+Because paper says:
+
+UWB alone is not enough
+Head direction helps distinguish similar behaviors
+IMMU captures motion patterns
+
+## 12) Bovitech-V3: Multimodal sensor support (IMMU, Ankle, UWB, Head Direction)
+
+### Why this section exists
+For your next version (Bovitech-V3), the codebase in `mmcows-main/benchmarks` already supports multiple modalities and fusion setups. This section explains what they are and how the data shapes up.
+
+### Data modalities and frequency
+- `main_data/immu/Txx/Txx_MMDD.csv`: IMMU accelerometer + optional magnetometer (high frequency, 40-100 Hz in your current files)
+- `main_data/ankle/Cxx/Cxx_MMDD.csv`: Ankle sensor (10 Hz, includes leg movement features)
+- `main_data/uwb/Txx/Txx_MMDD.csv`: UWB location (1/15 Hz, useful for spatial context)
+- `sub_data/head_direction/Txx/Txx_MMDD.csv`: Head direction (10 Hz)
+- `behavior_labels/individual/Cxx_MMDD.csv`: label timeline (1 Hz)
+
+### File mapping for behavior classes
+The `artifacts/model/behavior_map.json` in this repo means:
+- 0: Unknown
+- 1: Walking
+- 2: Standing
+- 3: Feeding head up
+- 4: Feeding head down
+- 5: Licking
+- 6: Drinking
+- 7: Lying
+
+This file is correct for the current baseline IMMU model. For any modality/fusion model, keep the same class IDs to maintain compatibility (or extend with new IDs and update the map accordingly).
+
+### Multimodal preprocessing (from `mmcows-main/benchmarks/1_behavior_cls/uwb_hd_akl/data_loader.py`)
+- IMMU pipeline (current `src/pipeline_utils.py`) does per-second aggregation via `groupby(ts_sec)`.
+- UWB/HD/Ankle pipeline does:
+  1. load UWB (1/15 Hz), HD (10 Hz), ankle (10 Hz) and labels (1 Hz)
+  2. aggregate HD from 10 Hz to 1 Hz using mean per second
+  3. align to UWB timestamps and optionally drop timestamps where behavior==0
+  4. merge UWB+HD+Ankle per timestamp and join label for supervised training
+
+### Model training orchestration (Bovitech-V3 vision)
+- `train_uwb_hd_akl.py`, `test_uwb_hd_akl.py` in `benchmarks/2_beahvior_analysis` show fusion experiments.
+- They use `data_loader_s1` (object split) and `data_loader_s2` (temporal split) from same module.
+
+### Suggested migration plan for Bovitech-V3
+1. Keep `src/pipeline_utils.py` for IMMU-only baseline.
+2. Add `src/pipeline_utils_multimodal.py` with generic helpers:
+   - `load_uwb_csv`, `load_ankle_csv`, `load_head_direction_csv`, `load_label_csv`
+   - `aggregate_uwb`, `aggregate_ankle`, `aggregate_head`, `align_modalities`
+3. Add `src/build_dataset_multimodal.py` like `build_dataset.py` but accepts modality list.
+4. Add `src/train_model_multimodal.py` to train fusion models (RF, XGBoost, etc.) and save metrics.
+5. Keep `behavior_map.json` in sync with label schema.
+
+### Sanity check command
+```bash
+python - <<'PY'
+import json, pathlib
+path=pathlib.Path('artifacts/model/behavior_map.json')
+print('exists',path.exists())
+print(json.loads(path.read_text('utf-8')))
+PY
+```
+
+### One-page quick understanding
+1. read raw files with `pandas.read_csv`
+2. check timestamps with `.diff().median()` for expected Hz
+3. align each modality to one common timeline (e.g., seconds or UWB 1/15s)
+4. merge behavior labels to create supervised dataset
+5. train + evaluate + predict
+
+---
+
+✅ Behavior map is correct and ready. Bovitech-V3 is now clearly scoped for ankle and UWB too, and this README addition explains both data and pipeline behavior.

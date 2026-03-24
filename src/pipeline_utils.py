@@ -148,3 +148,82 @@ def discover_pairs(sensor_root: Path, cows: Optional[Iterable[str]] = None) -> L
                 )
             )
     return pairs
+
+
+def load_uwb_data(path: Path) -> pd.DataFrame:
+    """Load raw UWB data file into a DataFrame with time and position columns."""
+    df = pd.read_csv(path)
+    if "timestamp" not in df.columns:
+        raise ValueError(f"UWB file {path} is missing 'timestamp' column")
+
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).copy()
+    df["timestamp"] = df["timestamp"].astype("float64")
+
+    # Keep only spatial columns we can use, at least x/y or x and y
+    possible_cols = [c for c in df.columns if c.lower() in {"x","y","z","lat","lon","pos_x","pos_y","pos_z"}]
+    if not possible_cols:
+        # Fallback: keep all numeric besides timestamp
+        possible_cols = [c for c in df.columns if c != "timestamp" and pd.api.types.is_numeric_dtype(df[c])]
+
+    out = df[["timestamp"] + possible_cols].copy()
+    return out
+
+
+def process_uwb(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize and resample UWB data to 1 second aggregation + forward fill missing seconds."""
+    if "timestamp" not in df.columns:
+        raise ValueError("UWB DataFrame missing 'timestamp'")
+
+    df = df.dropna(subset=["timestamp"]).copy()
+    df["ts_sec"] = np.floor(df["timestamp"]).astype("int64")
+
+    # if timestamp is in microseconds or all huge, keep as is and floor
+    value_cols = [c for c in df.columns if c not in {"timestamp", "ts_sec"}]
+    if not value_cols:
+        raise ValueError("UWB DataFrame has no position columns after timestamp")
+
+    agg = df.groupby("ts_sec")[value_cols].mean()
+
+    # Reindex to continuous second timeline, forward/backfill to avoid gaps
+    full_index = pd.RangeIndex(agg.index.min(), agg.index.max() + 1)
+    agg = agg.reindex(full_index).ffill().bfill()
+    agg = agg.reset_index().rename(columns={"index": "ts_sec"})
+
+    # Compute optional speed if x,y exists
+    if "x" in agg.columns and "y" in agg.columns:
+        dx = agg["x"].diff().fillna(0.0)
+        dy = agg["y"].diff().fillna(0.0)
+        agg["uwb_speed"] = np.sqrt(dx ** 2 + dy ** 2)
+
+    return agg
+
+
+def load_head_data(path: Path) -> pd.DataFrame:
+    """Load head direction data and ensure timestamp exists."""
+    df = pd.read_csv(path)
+    if "timestamp" not in df.columns:
+        raise ValueError(f"Head file {path} missing 'timestamp' column")
+
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).copy()
+    df["timestamp"] = df["timestamp"].astype("float64")
+
+    return df
+
+
+def aggregate_head(df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate head direction to one row per second (mean)."""
+    if "timestamp" not in df.columns:
+        raise ValueError("Head DataFrame missing 'timestamp'")
+
+    df = df.dropna(subset=["timestamp"]).copy()
+    df["ts_sec"] = np.floor(df["timestamp"]).astype("int64")
+
+    value_cols = [c for c in df.columns if c not in {"timestamp", "ts_sec"}]
+    if not value_cols:
+        raise ValueError("Head DataFrame has no signal columns")
+
+    agg = df.groupby("ts_sec")[value_cols].mean().reset_index()
+    return agg
+
