@@ -227,3 +227,91 @@ def aggregate_head(df: pd.DataFrame) -> pd.DataFrame:
     agg = df.groupby("ts_sec")[value_cols].mean().reset_index()
     return agg
 
+
+def aggregate_immu_sliding_window(
+    df: pd.DataFrame,
+    window_size: int = 3,
+    include_mag: bool = True,
+) -> pd.DataFrame:
+    """
+    Aggregate IMMU data using sliding windows (V5 feature extraction).
+    
+    Args:
+        df: DataFrame with 'timestamp', accel_*, and optional mag_* columns
+        window_size: Window size in seconds (default 3)
+        include_mag: Whether to include magnetometer magnitude
+    
+    Returns:
+        DataFrame with one row per window, window_ts (center of window) as key
+    """
+    df = df.copy().sort_values("timestamp").reset_index(drop=True)
+    
+    # Create window_id for each row based on timestamp
+    min_ts = float(df["timestamp"].min())
+    df["window_id"] = ((df["timestamp"] - min_ts) // window_size).astype("int64")
+    
+    # Group by window and aggregate
+    agg_dict = {}
+    for col in ["accel_x_mps2", "accel_y_mps2", "accel_z_mps2", "accel_mag"]:
+        if col in df.columns:
+            agg_dict[col] = ["mean", "std", "min", "max", "median"]
+    
+    if include_mag and "mag_mag" in df.columns:
+        agg_dict["mag_mag"] = ["mean", "std", "min", "max", "median"]
+    
+    # Aggregate by window
+    result = df.groupby("window_id").agg(agg_dict)
+    result.columns = ["_".join(col) for col in result.columns]
+    
+    # Add sample count and ts_sec
+    sample_counts = df.groupby("window_id").size().reset_index(name="samples_in_window")
+    result = result.reset_index()
+    result = result.merge(sample_counts, on="window_id", how="left")
+    
+    # Compute ts_sec as the center of each window
+    ts_centers = df.groupby("window_id")["timestamp"].apply(lambda x: int(np.floor(x.mean())))
+    result = result.merge(ts_centers.reset_index().rename(columns={"timestamp": "ts_sec"}), on="window_id", how="left")
+    
+    result = result.drop(columns=["window_id"]).fillna(0.0)
+    return result
+
+
+def aggregate_head_sliding_window(
+    df: pd.DataFrame,
+    window_size: int = 3,
+) -> pd.DataFrame:
+    """
+    Aggregate head direction data using sliding windows (V5 feature extraction).
+    
+    Args:
+        df: DataFrame with 'timestamp' and direction columns
+        window_size: Window size in seconds (default 3)
+    
+    Returns:
+        DataFrame with one row per window
+    """
+    if "timestamp" not in df.columns:
+        raise ValueError("Head DataFrame missing 'timestamp'")
+    
+    df = df.copy().sort_values("timestamp").reset_index(drop=True)
+    
+    # Create window_id for each row based on timestamp
+    min_ts = float(df["timestamp"].min())
+    df["window_id"] = ((df["timestamp"] - min_ts) // window_size).astype("int64")
+    
+    value_cols = [c for c in df.columns if c not in {"timestamp", "window_id"}]
+    if not value_cols:
+        return pd.DataFrame(columns=["ts_sec"])
+    
+    # Aggregate by window (mean only for head direction)
+    agg_dict = {col: "mean" for col in value_cols}
+    result = df.groupby("window_id").agg(agg_dict)
+    result = result.reset_index()
+    
+    # Compute ts_sec as the center of each window
+    ts_centers = df.groupby("window_id")["timestamp"].apply(lambda x: int(np.floor(x.mean())))
+    result = result.merge(ts_centers.reset_index().rename(columns={"timestamp": "ts_sec"}), on="window_id", how="left")
+    
+    result = result.drop(columns=["window_id"]).fillna(0.0)
+    return result
+

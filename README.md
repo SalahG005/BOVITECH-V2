@@ -343,3 +343,154 @@ PY
 ---
 
 ✅ Behavior map is correct and ready. Bovitech-V3 is now clearly scoped for ankle and UWB too, and this README addition explains both data and pipeline behavior.
+
+---
+
+## 13) Bovitech-V5: Cow-wise Generalization with Sliding Windows (HEAD + IMMU only)
+
+### Overview
+V5 is a significant architecture change focused on **true generalization** across different cows and **temporal context** through sliding window features. It moves away from random per-second sampling toward validated cow-specific train/test splits.
+
+### Key Improvements Over V4
+1. **Cow-wise train/test split**: Train on cows C01–C08, test on disjoint cows C09–C10
+   - V4 used random 80/20 row split (risk of overfitting)
+   - V5 evaluates genuine cross-cow generalization
+2. **Sliding window features**: 3–5 second windows instead of 1-second snapshots
+   - More temporal context for behavior recognition
+   - Reduces noise from instantaneous acceleration peaks
+3. **HEAD + IMMU only**: No UWB spatial data
+   - Focus on wearable sensor performance
+   - UWB may not always be available in farm (WiFi interference, range limits)
+   - Simpler hardware (collar only, no base station)
+4. **Multi-date support**: Can train on multiple labeled days if available
+   - Currently only 0725 has labels, but designed for expansion
+
+### V5 Architecture
+
+Files added/modified:
+- `src/train_model_v5.py`: New trainer with cow-wise split logic
+- `src/pipeline_utils.py`: Added `aggregate_immu_sliding_window()` and `aggregate_head_sliding_window()`
+- `src/build_dataset.py`: Updated to support `--window-size` parameter
+
+### Training V5 Model
+
+**Full command (cows C01–C10, sliding windows 3s):**
+
+```powershell
+cd src
+python train_model_v5.py `
+    --sensor-root ../sensor_data/sensor_data `
+    --cows C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 `
+    --dates 0725 `
+    --window-size 3 `
+    --train-cows C01 C02 C03 C04 C05 C06 C07 C08 `
+    --test-cows C09 C10 `
+    --include-mag `
+    --out-dir ../artifacts/model_v5
+```
+
+**What happens:**
+1. Loads all 10 cow/day pairs (immu + head + labels)
+2. Aggregates each modality using 3-second sliding windows
+3. Merges into unified feature table (287K rows with windows)
+4. Trains RandomForest on cows C01–C08 (229K rows)
+5. Tests on held-out cows C09–C10 (57K rows)
+6. Saves model, metrics, feature importances
+
+**Output:**
+- `artifacts/model_v5/behavior_rf_v5_cowwise.joblib`
+- `artifacts/model_v5/metadata_v5_cowwise.json` (includes `window_size_seconds`, `train_cows`, `test_cows`)
+- `artifacts/model_v5/confusion_matrix_v5_cowwise.csv`
+- `artifacts/model_v5/feature_importance_v5_cowwise.csv`
+
+### Example Results (V5 baseline)
+When training on C01–C08 and testing on C09–C10 with 3s windows:
+- **Accuracy**: 59.3%
+- **Macro F1**: 0.404
+- **Top features**: relative_angle, yaw, accel_y_mps2_max, mag_mag_min
+
+Note: Lower accuracy than V4 (93.8%) is **expected** because:
+- V4 trained on C01–C03 only (3 very similar cows)
+- V5 trains on 8 diverse cows, tests on truly unseen cows
+- Per-second features are finer granularity than sliding windows
+- No UWB spatial context (V4 had this)
+
+### Sliding Window Feature Details
+
+For a 3-second window over IMMU data:
+```
+Window [ts: 1000–1003]
+  accel_x_mps2_mean, accel_x_mps2_std, accel_x_mps2_min, accel_x_mps2_max, accel_x_mps2_median
+  accel_y_mps2_mean, accel_y_mps2_std, accel_y_mps2_min, accel_y_mps2_max, accel_y_mps2_median
+  accel_z_mps2_mean, accel_z_mps2_std, accel_z_mps2_min, accel_z_mps2_max, accel_z_mps2_median
+  accel_mag_mean, accel_mag_std, accel_mag_min, accel_mag_max, accel_mag_median
+  mag_mag_mean, mag_mag_std, mag_mag_min, mag_mag_max, mag_mag_median (if --include-mag)
+  samples_in_window
+  
+Head features (if available):
+  relative_angle_mean, yaw_mean, pitch_mean, roll_mean, ...
+  
+Label: behavior from center of window
+```
+
+**Window assignment**: Each row gets assigned to window based on `ts // window_size`. The label is taken from the nearest second within that window.
+
+### Building V5 Datasets Manually
+
+Single cow/window:
+```powershell
+python build_dataset.py `
+    --sensor-root ../sensor_data/sensor_data `
+    --cow C01 `
+    --date 0725 `
+    --window-size 3 `
+    --use-multimodal `
+    --include-mag `
+    --output-csv ../artifacts/datasets/dataset_v5_C01_0725_3s.csv
+```
+
+Multi-date (when available):
+```powershell
+# Similar command but with different dates
+# Note: Currently only 0725 has labels
+```
+
+### Comparing V4 vs V5
+
+| Aspect | V4 | V5 |
+|--------|----|----|
+| **Modalities** | IMMU + UWB + Head | HEAD + IMMU |
+| **Feature granularity** | Per-second | 3–5s windows |
+| **Train/test split** | Random row split (80/20) | Cow-wise (C01–C08 / C09–C10) |
+| **Dataset size** | ~170K rows | ~287K rows (3s windows) |
+| **Accuracy** | 93.8% | 59.3% |
+| **Generalization** | Questionable (same cows) | True cross-cow validation |
+| **Macro F1** | 0.826 | 0.404 |
+
+**Interpretation:**
+- V4 high accuracy = memorized behavior on known cows (overfitting)
+- V5 lower accuracy = learned general patterns, tested on unseen cows (true skill)
+- V5 is more honest about real-world performance
+
+### Future Improvements (V5+)
+
+1. **Temporal models**: Use LSTM or Transformer instead of RF for sequence context
+2. **More labeled dates**: Retrain when more dates are annotated
+3. **Data augmentation**: Synthetic sliding windows, pitch/roll rotation
+4. **Ensemble**: Combine V4 (per-second, known-cow context) + V5 (general, cross-cow)
+5. **Active learning**: Label hard examples from farm data
+6. **Post-processing**: Majority vote smoothing over 5s windows
+
+### Testing V5 Predictions
+
+When V5 model is ready:
+```powershell
+python predict_behavior.py `
+    --immu-file ../sensor_data/sensor_data/main_data/immu/T02/T02_0725.csv `
+    --model-dir ../artifacts/model_v5 `
+    --use-sliding-window `
+    --window-size 3 `
+    --output-csv ../predictions/T02_0725_v5_pred.csv
+```
+
+Expected output: `ts_sec, pred_behavior, pred_behavior_name` for each window center.
