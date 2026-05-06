@@ -16,3 +16,14 @@ mmcows-main/
 
 # VSCode / IDE settings
 .vscode/
+data/
+*.zip
+*.pt
+!StressDetection/runs/stress_sensor/StressDetectionV3.pt
+StressDetection/runs/*
+!StressDetection/runs/stress_sensor/
+StressDetection/runs/stress_sensor/*
+!StressDetection/runs/stress_sensor/stress_detection_v3.py
+!StressDetection/runs/stress_sensor/pipeline.py
+!StressDetection/runs/stress_sensor/README.md
+!StressDetection/runs/stress_sensor/StressDetectionV3.pt

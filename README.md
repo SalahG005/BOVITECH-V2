@@ -13,6 +13,57 @@ It is designed to match your current data layout and your real goal:
 
 ---
 
+## StressDetectionV3 Pipeline Output
+
+Generated from:
+
+```bash
+python StressDetection/runs/stress_sensor/pipeline.py
+```
+
+```text
+StressDetectionV3 - End-to-End Pipeline
+--------------------------------------------
+01. Load raw streams
+    does   : Read THI, neck temperature, and lying-behavior time series.
+    output : Raw multimodal sequences.
+02. Align + clean timestamps
+    does   : Synchronize modalities by timestamp and handle missing/invalid values.
+    output : Time-aligned clean signals.
+03. Normalize features
+    does   : Apply train-statistics normalization so modalities are comparable.
+    output : Scaled sensor sequences.
+04. Sliding-window segmentation
+    does   : Split long sequences into fixed windows for sequence learning.
+    output : Windowed samples.
+05. Future target shift
+    does   : Assign labels from the future horizon (early-warning setting).
+    output : Input window + future stress label.
+06. Rule-based stress labeling
+    does   : Map THI/temp/lying + slope logic to classes 0/1/2.
+    output : Normal / At-Risk / Stressed targets.
+07. Per-sensor encoding
+    does   : Encode each modality with BiLSTM + delta feature augmentation.
+    output : Three modality embeddings.
+08. Cross-sensor attention fusion
+    does   : Fuse modality embeddings with multi-head self-attention.
+    output : Single fused representation.
+09. Cow identity conditioning
+    does   : Concatenate cow embedding to fused sensor representation.
+    output : Context-aware joint feature vector.
+10. Classifier head
+    does   : Apply MLP to produce 3-class logits.
+    output : Predicted stress class probabilities.
+11. Train with imbalance handling
+    does   : Optimize weighted cross-entropy to better learn minority stress classes.
+    output : Trained StressDetectionV3 weights.
+12. Evaluate + export
+    does   : Compute metrics, confusion matrix, and class report.
+    output : Evaluation artifacts (JSON/TXT/CSV).
+```
+
+---
+
 ## 1) What You Already Have
 
 Your workspace includes MmCows-like files:
