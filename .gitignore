@@ -192,3 +192,6 @@ StressDetection/runs/stress_sensor/*
 !StressDetection/runs/stress_sensor/pipeline.py
 !StressDetection/runs/stress_sensor/README.md
 !StressDetection/runs/stress_sensor/StressDetectionV3.pt
+
+# Nested repo accidentally created inside stress_sensor (do not commit)
+StressDetection/runs/stress_sensor/.git/
