@@ -1,5 +1,7 @@
 # Cow Behavior Prediction Pipeline (MmCows-style Sensor Data)
 
+Bovitech is developed as coursework for the AI Project program at ESPRIT (École Supérieure Privée d’Ingénierie et de Technologies).
+
 This project gives you a complete, practical workflow to:
 
 1. Read raw neck IMMU sensor data (`accel_*`, optional `mag_*`)
